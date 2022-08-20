@@ -1040,6 +1040,9 @@ static PyObject *py_pjsua_handle_events(PyObject *pSelf, PyObject *pArgs)
     Py_END_ALLOW_THREADS
 #endif
     
+if (PyErr_Occurred()) {
+return NULL;
+}
     return Py_BuildValue("i", ret);
 }
 
