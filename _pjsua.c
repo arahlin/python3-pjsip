@@ -84,7 +84,7 @@ static void cb_log_cb(int level, const char *data, int len)
     if (PyCallable_Check(g_obj_log_cb)) {
 	PyObject *param_data;
 
-	param_data = PyBytes_FromStringAndSize(data, len);
+	param_data = PyUnicode_FromStringAndSize(data, len);
 
         PyObject_CallFunction(
             g_obj_log_cb, 
@@ -418,7 +418,7 @@ static void cb_on_incoming_subscribe( pjsua_acc_id acc_id,
 		len = 0;
 	    contact[len] = '\0';
 
-	    param_contact = PyBytes_FromStringAndSize(contact, len);
+	    param_contact = PyUnicode_FromStringAndSize(contact, len);
 	} else {
 	    param_contact = Py_BuildValue("");
 	}
@@ -538,14 +538,14 @@ static void cb_on_pager_status(pjsua_call_id call_id, const pj_str_t *to,
 				pjsip_rx_data *rdata,
 				pjsua_acc_id acc_id)
 {
+    PJ_UNUSED_ARG(tdata);
+    PJ_UNUSED_ARG(rdata);
+
     ENTER_PYTHON();
     if (PyCallable_Check(g_obj_callback->on_pager)) {
 	PyObject *param_call_id, *param_to, *param_body,
 		 *param_user_data, *param_status, *param_reason,
 		 *param_acc_id;
-
-	PJ_UNUSED_ARG(tdata);
-	PJ_UNUSED_ARG(rdata);
 
         PyObject_CallFunctionObjArgs(
 		g_obj_callback->on_pager_status,
@@ -580,12 +580,12 @@ static void cb_on_typing(pjsua_call_id call_id, const pj_str_t *from,
                             pj_bool_t is_typing, pjsip_rx_data *rdata,
 			    pjsua_acc_id acc_id)
 {
+    PJ_UNUSED_ARG(rdata);
+
     ENTER_PYTHON();
     if (PyCallable_Check(g_obj_callback->on_typing)) {
 	PyObject *param_call_id, *param_from, *param_to, *param_contact,
 		 *param_is_typing, *param_acc_id;
-
-	PJ_UNUSED_ARG(rdata);
 
         PyObject_CallFunctionObjArgs(
 		g_obj_callback->on_typing,
@@ -1009,10 +1009,11 @@ static PyObject *py_pjsua_handle_events(PyObject *pSelf, PyObject *pArgs)
 #if !NO_PJSIP_THREAD
     Py_END_ALLOW_THREADS
 #endif
-    
-if (PyErr_Occurred()) {
-return NULL;
-}
+
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+
     return Py_BuildValue("i", ret);
 }
 
@@ -1190,8 +1191,11 @@ static PyObject *py_pjsua_enum_transports(PyObject *pSelf, PyObject *pArgs)
     status = pjsua_enum_transports(id, &c);
     
     list = PyList_New(c);
-    for (i = 0; i < c; i++) {     
-        PyList_SetItem(list, i, Py_BuildValue("i", id[i]));
+
+    if (status == PJ_SUCCESS) {
+        for (i = 0; i < c; i++) {
+            PyList_SetItem(list, i, Py_BuildValue("i", id[i]));
+        }
     }
     
     return (PyObject*)list;
@@ -1755,7 +1759,7 @@ static PyObject *py_pjsua_acc_pres_notify(PyObject *pSelf,
     srv_pres = (void*) PyLong_AsLong(arg_pres);
     with_body = (state != PJSIP_EVSUB_STATE_TERMINATED);
 
-    if (arg_reason && PyBytes_Check(arg_reason)) {
+    if (arg_reason && PyUnicode_Check(arg_reason)) {
 	reason = PyUnicode_ToPJ(arg_reason);
     } else {
 	reason = pj_str("");
@@ -1932,7 +1936,7 @@ static PyObject *py_pjsua_buddy_find(PyObject *pSelf, PyObject *pArgs)
         return NULL;
     }
 
-    if (!PyBytes_Check(pURI))
+    if (!PyUnicode_Check(pURI))
 	return Py_BuildValue("i", PJSUA_INVALID_ID);
 
     uri = PyUnicode_ToPJ(pURI);
@@ -2324,6 +2328,9 @@ static PyObject *py_pjsua_conf_get_port_info(PyObject *pSelf, PyObject *pArgs)
     }
     
     status = pjsua_conf_get_port_info(id, &info);
+    if (status != PJ_SUCCESS)
+        return Py_BuildValue("");
+
     ret = (PyObj_pjsua_conf_port_info *)
 	  conf_port_info_new(&PyTyp_pjsua_conf_port_info, NULL, NULL);
     ret->bits_per_sample = info.bits_per_sample;
@@ -2492,7 +2499,7 @@ static PyObject *py_pjsua_playlist_create(PyObject *pSelf, PyObject *pArgs)
     int options;
     PyObject *pLabel, *pFileList;
     pj_str_t label;
-    int count;
+    unsigned int count;
     pj_str_t files[64];
     int status;	
     
@@ -2676,7 +2683,7 @@ static PyObject *py_pjsua_enum_snd_devs(PyObject *pSelf, PyObject *pArgs)
         obj->default_samples_per_sec = info[i].default_samples_per_sec;
         obj->input_count = info[i].input_count;
         obj->output_count = info[i].output_count;
-        obj->name = PyBytes_FromString(info[i].name);
+        obj->name = PyUnicode_FromString(info[i].name);
 
         PyList_SetItem(ret, i, (PyObject *)obj);
     }
@@ -2697,7 +2704,11 @@ static PyObject *py_pjsua_get_snd_dev(PyObject *pSelf, PyObject *pArgs)
 
     status = pjsua_get_snd_dev(&capture_dev, &playback_dev);
     
-    return Py_BuildValue("ii", capture_dev, playback_dev);
+    if (status == PJ_SUCCESS) {
+        return Py_BuildValue("ii", capture_dev, playback_dev);
+    } else {
+        return Py_BuildValue("");
+    }
 }
 
 /*
@@ -3554,7 +3565,7 @@ static PyObject *py_pjsua_call_xfer(PyObject *pSelf, PyObject *pArgs)
         return NULL;
     }
 
-    if (!PyBytes_Check(pDstUri))
+    if (!PyUnicode_Check(pDstUri))
 	return NULL;
 
     dest = PyUnicode_ToPJ(pDstUri);
@@ -3636,7 +3647,7 @@ static PyObject *py_pjsua_call_dial_dtmf(PyObject *pSelf, PyObject *pArgs)
         return NULL;
     }
 
-    if (!PyBytes_Check(pDigits))
+    if (!PyUnicode_Check(pDigits))
 	return Py_BuildValue("i", PJ_EINVAL);
 
     digits = PyUnicode_ToPJ(pDigits);
@@ -3667,12 +3678,12 @@ static PyObject *py_pjsua_call_send_im(PyObject *pSelf, PyObject *pArgs)
         return NULL;
     }
 
-    if (!PyBytes_Check(pContent))
+    if (!PyUnicode_Check(pContent))
 	return Py_BuildValue("i", PJ_EINVAL);
 
     content = PyUnicode_ToPJ(pContent);
 
-    if (PyBytes_Check(pMimeType)) {
+    if (PyUnicode_Check(pMimeType)) {
         mime_type = &tmp_mime_type;
         tmp_mime_type = PyUnicode_ToPJ(pMimeType);
     } else {
@@ -3773,15 +3784,15 @@ static PyObject *py_pjsua_call_dump(PyObject *pSelf, PyObject *pArgs)
     }	
 
     buffer = (char*) malloc(maxlen * sizeof(char));
-    indent = PyBytes_AsString(pIndent);
+    indent = (char*) PyUnicode_AsUTF8(pIndent);
     
     status = pjsua_call_dump(call_id, with_media, buffer, maxlen, indent);
     if (status != PJ_SUCCESS) {
 	free(buffer);
-	return PyBytes_FromString("");
+	return PyUnicode_FromString("");
     }
 
-    ret = PyBytes_FromString(buffer);
+    ret = PyUnicode_FromString(buffer);
     free(buffer);
     return (PyObject*)ret;
 }
@@ -3824,7 +3835,7 @@ static PyObject *py_pj_strerror(PyObject *pSelf, PyObject *pArgs)
     
     ret = pj_strerror(err, err_msg, sizeof(err_msg));
     
-    return PyBytes_FromStringAndSize(err_msg, ret.slen);
+    return PyUnicode_FromStringAndSize(err_msg, ret.slen);
 }
 
 
@@ -4438,8 +4449,6 @@ PyInit__pjsua(void)
     PyObject* m = NULL;
 #define ADD_CONSTANT(mod,name)	PyModule_AddIntConstant(mod,#name,name)
 
-    
-    PyEval_InitThreads();
 
     if (PyType_Ready(&PyTyp_pjsua_callback) < 0)
         INITERROR;
